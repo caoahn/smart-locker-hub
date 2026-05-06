@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { authApi } from "@/integrations/supabase/api";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,7 +35,7 @@ export default function Auth() {
     const parsed = schema.safeParse({ email, password });
     if (!parsed.success) return toast.error(parsed.error.errors[0].message);
     setBusy(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { error } = await authApi.signIn(email, password);
     setBusy(false);
     if (error) return toast.error(error.message);
     toast.success("Đăng nhập thành công");
@@ -46,10 +46,8 @@ export default function Auth() {
     const parsed = schema.safeParse({ email, password });
     if (!parsed.success) return toast.error(parsed.error.errors[0].message);
     setBusy(true);
-    const { error } = await supabase.auth.signUp({
-      email, password,
-      options: { emailRedirectTo: `${window.location.origin}/`, data: { display_name: name || email.split("@")[0] } },
-    });
+    const displayName = name || email.split("@")[0];
+    const { error } = await authApi.signUp(email, password, displayName, `${window.location.origin}/`);
     setBusy(false);
     if (error) return toast.error(error.message);
     toast.success("Tạo tài khoản thành công — bạn có thể đăng nhập ngay");

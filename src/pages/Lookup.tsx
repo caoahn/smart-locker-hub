@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { orderApi, settingsApi } from "@/integrations/supabase/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -24,7 +24,7 @@ export default function Lookup() {
   const [now, setNow] = useState(new Date());
 
   useEffect(() => {
-    supabase.from("settings").select("*").eq("id", 1).single().then(({ data }) => {
+    settingsApi.getSettings().then(({ data }) => {
       if (data) setSettings(data as Settings);
     });
     const t = setInterval(() => setNow(new Date()), 1000);
@@ -36,7 +36,7 @@ export default function Lookup() {
     const parsed = phoneSchema.safeParse(phone);
     if (!parsed.success) return toast.error(parsed.error.errors[0].message);
     setBusy(true);
-    const { data, error } = await supabase.rpc("lookup_orders_by_phone", { _phone: phone.trim() });
+    const { data, error } = await orderApi.lookupByPhone(phone.trim());
     setBusy(false);
     if (error) return toast.error(error.message);
     setOrders((data ?? []) as Order[]);

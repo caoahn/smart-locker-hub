@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { alertApi, lockerApi, orderApi, realtimeApi, settingsApi } from "@/integrations/supabase/api";
 import AppHeader from "@/components/layout/AppHeader";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -26,10 +26,10 @@ export default function AdminDashboard() {
 
   async function loadAll() {
     const [l, o, a, s] = await Promise.all([
-      supabase.from("lockers").select("*").order("id"),
-      supabase.from("orders").select("*").order("created_at", { ascending: false }),
-      supabase.from("alerts").select("*").order("created_at", { ascending: false }).limit(50),
-      supabase.from("settings").select("*").eq("id", 1).single(),
+      lockerApi.listLockers(),
+      orderApi.listOrders(),
+      alertApi.listAlerts(),
+      settingsApi.getSettings(),
     ]);
     if (l.data) setLockers(l.data as Locker[]);
     if (o.data) setOrders(o.data as Order[]);
@@ -40,12 +40,8 @@ export default function AdminDashboard() {
   useEffect(() => {
     loadAll();
     const t = setInterval(() => setNow(new Date()), 1000);
-    const ch = supabase.channel("admin-rt")
-      .on("postgres_changes", { event: "*", schema: "public", table: "lockers" }, loadAll)
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, loadAll)
-      .on("postgres_changes", { event: "*", schema: "public", table: "alerts" }, loadAll)
-      .subscribe();
-    return () => { clearInterval(t); supabase.removeChannel(ch); };
+    const unsubscribe = realtimeApi.subscribeToAdminChanges(loadAll);
+    return () => { clearInterval(t); unsubscribe(); };
   }, []);
 
   const stats = useMemo(() => {
@@ -59,22 +55,22 @@ export default function AdminDashboard() {
 
   async function masterOpen(boxId: number) {
     if (!confirm(`Mở khẩn cấp tủ #${boxId}?`)) return;
-    await supabase.from("lockers").update({ status: "empty", updated_at: new Date().toISOString() }).eq("id", boxId);
+    await lockerApi.markEmpty(boxId);
     const active = orders.find(o => o.box_id === boxId && o.status === "active");
-    if (active) await supabase.from("orders").update({ status: "completed", picked_up_at: new Date().toISOString() }).eq("id", active.id);
-    await supabase.from("alerts").insert({ box_id: boxId, type: "info", message: `Master key: tủ #${boxId} được mở bởi admin` });
+    if (active) await orderApi.completeOrder(active.id);
+    await alertApi.createInfoAlert(boxId, `Master key: tủ #${boxId} được mở bởi admin`);
     toast.success("Đã mở tủ");
   }
 
   async function confirmPaid(o: Order) {
     const fee = settings ? calculateFee(o.start_time, settings) : o.total_amount;
-    await supabase.from("orders").update({ is_paid: true, total_amount: fee, status: "completed", picked_up_at: new Date().toISOString() }).eq("id", o.id);
-    await supabase.from("lockers").update({ status: "empty", updated_at: new Date().toISOString() }).eq("id", o.box_id);
+    await orderApi.confirmPaid(o.id, fee);
+    await lockerApi.markEmpty(o.box_id);
     toast.success("Đã xác nhận thanh toán & mở tủ");
   }
 
   async function dismissAlert(id: string) {
-    await supabase.from("alerts").update({ is_read: true }).eq("id", id);
+    await alertApi.markRead(id);
   }
 
   return (
@@ -225,10 +221,10 @@ function SettingsForm({ settings, onSaved }: { settings: Settings; onSaved: () =
   const [busy, setBusy] = useState(false);
   async function save() {
     setBusy(true);
-    const { error } = await supabase.from("settings").update({
+    const { error } = await settingsApi.updateSettings({
       base_fee: s.base_fee, base_hours: s.base_hours, overdue_fee: s.overdue_fee, overdue_hours: s.overdue_hours,
-      bank_account: s.bank_account, bank_code: s.bank_code, account_name: s.account_name, updated_at: new Date().toISOString(),
-    }).eq("id", 1);
+      bank_account: s.bank_account, bank_code: s.bank_code, account_name: s.account_name,
+    });
     setBusy(false);
     if (error) return toast.error(error.message);
     toast.success("Đã lưu cấu hình");

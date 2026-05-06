@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { lockerApi, orderApi, realtimeApi } from "@/integrations/supabase/api";
 import AppHeader from "@/components/layout/AppHeader";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -25,14 +25,13 @@ export default function ShipperDashboard() {
   const [pendingDelivery, setPendingDelivery] = useState<{ orderId: string; otp: string; box: number } | null>(null);
 
   async function load() {
-    const { data } = await supabase.from("lockers").select("*").order("id");
+    const { data } = await lockerApi.listLockers();
     if (data) setLockers(data as Locker[]);
   }
 
   useEffect(() => {
     load();
-    const ch = supabase.channel("ship-rt").on("postgres_changes", { event: "*", schema: "public", table: "lockers" }, load).subscribe();
-    return () => { supabase.removeChannel(ch); };
+    return realtimeApi.subscribeToLockerChanges(load);
   }, []);
 
   async function openLocker() {
@@ -41,11 +40,11 @@ export default function ShipperDashboard() {
     if (!selected) return toast.error("Chọn một tủ trống");
     setBusy(true);
     const otp = generateOTP();
-    const { data, error } = await supabase.from("orders").insert({
+    const { data, error } = await orderApi.createOrder({
       box_id: selected, otp_code: otp, user_phone: phone.trim(), shipper_id: user!.id, status: "active",
-    }).select().single();
+    });
     if (error) { setBusy(false); return toast.error(error.message); }
-    await supabase.from("lockers").update({ status: "occupied", updated_at: new Date().toISOString() }).eq("id", selected);
+    await lockerApi.markOccupied(selected);
     setBusy(false);
     setPendingDelivery({ orderId: data.id, otp, box: selected });
     toast.success(`Tủ #${selected} đã mở. Bỏ hàng vào và đóng cửa.`);

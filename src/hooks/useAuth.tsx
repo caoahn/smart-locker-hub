@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { authApi, roleApi } from "@/integrations/supabase/api";
 import type { Session, User } from "@supabase/supabase-js";
 
 type Role = "admin" | "shipper" | null;
@@ -21,7 +21,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
+    const { data: sub } = authApi.onAuthStateChange((_event, s) => {
       setSession(s);
       setUser(s?.user ?? null);
       if (s?.user) {
@@ -31,7 +31,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setLoading(false);
       }
     });
-    supabase.auth.getSession().then(({ data: { session: s } }) => {
+    authApi.getSession().then(({ data: { session: s } }) => {
       setSession(s);
       setUser(s?.user ?? null);
       if (s?.user) fetchRole(s.user.id);
@@ -41,7 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   async function fetchRole(uid: string) {
-    const { data } = await supabase.from("user_roles").select("role").eq("user_id", uid);
+    const { data } = await roleApi.getUserRoles(uid);
     if (data?.some((r) => r.role === "admin")) setRole("admin");
     else if (data?.some((r) => r.role === "shipper")) setRole("shipper");
     else setRole(null);
@@ -49,7 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    await authApi.signOut();
   };
 
   return (
