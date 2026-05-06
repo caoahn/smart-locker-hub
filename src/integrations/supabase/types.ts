@@ -14,16 +14,213 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      alerts: {
+        Row: {
+          box_id: number | null
+          created_at: string
+          id: string
+          is_read: boolean
+          message: string
+          type: string
+        }
+        Insert: {
+          box_id?: number | null
+          created_at?: string
+          id?: string
+          is_read?: boolean
+          message: string
+          type: string
+        }
+        Update: {
+          box_id?: number | null
+          created_at?: string
+          id?: string
+          is_read?: boolean
+          message?: string
+          type?: string
+        }
+        Relationships: []
+      }
+      lockers: {
+        Row: {
+          id: number
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          id: number
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: number
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      orders: {
+        Row: {
+          box_id: number
+          created_at: string
+          id: string
+          is_paid: boolean
+          otp_code: string
+          picked_up_at: string | null
+          shipper_id: string | null
+          start_time: string
+          status: string
+          total_amount: number
+          user_phone: string
+        }
+        Insert: {
+          box_id: number
+          created_at?: string
+          id?: string
+          is_paid?: boolean
+          otp_code: string
+          picked_up_at?: string | null
+          shipper_id?: string | null
+          start_time?: string
+          status?: string
+          total_amount?: number
+          user_phone: string
+        }
+        Update: {
+          box_id?: number
+          created_at?: string
+          id?: string
+          is_paid?: boolean
+          otp_code?: string
+          picked_up_at?: string | null
+          shipper_id?: string | null
+          start_time?: string
+          status?: string
+          total_amount?: number
+          user_phone?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "orders_box_id_fkey"
+            columns: ["box_id"]
+            isOneToOne: false
+            referencedRelation: "lockers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          display_name: string | null
+          id: string
+          phone: string | null
+        }
+        Insert: {
+          created_at?: string
+          display_name?: string | null
+          id: string
+          phone?: string | null
+        }
+        Update: {
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          phone?: string | null
+        }
+        Relationships: []
+      }
+      settings: {
+        Row: {
+          account_name: string | null
+          bank_account: string | null
+          bank_code: string | null
+          base_fee: number
+          base_hours: number
+          id: number
+          overdue_fee: number
+          overdue_hours: number
+          updated_at: string
+        }
+        Insert: {
+          account_name?: string | null
+          bank_account?: string | null
+          bank_code?: string | null
+          base_fee?: number
+          base_hours?: number
+          id?: number
+          overdue_fee?: number
+          overdue_hours?: number
+          updated_at?: string
+        }
+        Update: {
+          account_name?: string | null
+          bank_account?: string | null
+          bank_code?: string | null
+          base_fee?: number
+          base_hours?: number
+          id?: number
+          overdue_fee?: number
+          overdue_hours?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
+      lookup_orders_by_phone: {
+        Args: { _phone: string }
+        Returns: {
+          box_id: number
+          id: string
+          is_paid: boolean
+          start_time: string
+          status: string
+          total_amount: number
+        }[]
+      }
+      verify_otp: {
+        Args: { _box_id: number; _otp: string }
+        Returns: {
+          is_paid: boolean
+          order_id: string
+          total_amount: number
+        }[]
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "shipper"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +347,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "shipper"],
+    },
   },
 } as const
