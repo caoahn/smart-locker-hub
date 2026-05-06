@@ -13,7 +13,7 @@ import { calculateFee, formatVND, type PricingConfig } from "@/lib/pricing";
 import { toast } from "sonner";
 
 interface Locker { id: number; status: string; updated_at: string; }
-interface Order { id: string; box_id: number; otp_code: string; user_phone: string; start_time: string; picked_up_at: string | null; total_amount: number; is_paid: boolean; status: string; }
+interface Order { id: string; box_id: number; otp_code: string; user_phone: string; start_time: string; picked_up_at: string | null; total_amount: number; is_paid: boolean; status: string; created_at?: string; }
 interface Alert { id: string; box_id: number | null; type: string; message: string; is_read: boolean; created_at: string; }
 interface Settings extends PricingConfig { id: number; bank_account: string; bank_code: string; account_name: string; }
 
