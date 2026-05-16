@@ -6,15 +6,20 @@ type Tables = Database["public"]["Tables"];
 
 export type AlertRow = Tables["alerts"]["Row"];
 export type LockerRow = Tables["lockers"]["Row"];
+export type NotificationRow = Tables["notifications"]["Row"];
 export type OrderRow = Tables["orders"]["Row"];
 export type SettingsRow = Tables["settings"]["Row"];
 export type UserRoleRow = Tables["user_roles"]["Row"];
 
-export type CreateOrderInput = Pick<OrderRow, "box_id" | "otp_code" | "user_phone" | "shipper_id" | "status">;
 export type UpdateSettingsInput = Pick<
   SettingsRow,
   "base_fee" | "base_hours" | "overdue_fee" | "overdue_hours" | "bank_account" | "bank_code" | "account_name"
 >;
+
+export type ReserveDropoffResult = Database["public"]["Functions"]["reserve_locker_for_dropoff"]["Returns"][number];
+export type DropoffClosedResult = Database["public"]["Functions"]["confirm_dropoff_closed"]["Returns"][number];
+export type VerifyPickupResult = Database["public"]["Functions"]["verify_pickup_otp"]["Returns"][number];
+export type PickupClosedResult = Database["public"]["Functions"]["confirm_pickup_closed"]["Returns"][number];
 
 type AuthListener = (event: AuthChangeEvent, session: Session | null) => void;
 
@@ -75,34 +80,76 @@ export const lockerApi = {
 
 export const orderApi = {
   listOrders() {
-    return supabase.from("orders").select("*").order("created_at", { ascending: false });
+    return supabase.from("orders").select("*").is("deleted_at", null).order("created_at", { ascending: false });
   },
 
-  createOrder(input: CreateOrderInput) {
-    return supabase.from("orders").insert(input).select().single();
+  reserveDropoff(boxId: number, customerPhone: string, customerEmail: string | null) {
+    return supabase
+      .rpc("reserve_locker_for_dropoff", {
+        _box_id: boxId,
+        _customer_phone: customerPhone,
+        _customer_email: customerEmail,
+      })
+      .single();
+  },
+
+  requestDropoffOpen(orderId: string) {
+    return supabase.rpc("request_dropoff_open", { _order_id: orderId }).single();
+  },
+
+  markDropoffOpenFailed(orderId: string, reason: string) {
+    return supabase.rpc("mark_dropoff_open_failed", { _order_id: orderId, _reason: reason }).single();
+  },
+
+  confirmDropoffClosed(boxId: number) {
+    return supabase.rpc("confirm_dropoff_closed", { _box_id: boxId }).single();
   },
 
   lookupByPhone(phone: string) {
     return supabase.rpc("lookup_orders_by_phone", { _phone: phone });
   },
 
+  verifyPickupOtp(boxId: number, otp: string) {
+    return supabase.rpc("verify_pickup_otp", { _box_id: boxId, _otp: otp }).single();
+  },
+
+  markPickupOpenFailed(orderId: string, reason: string) {
+    return supabase.rpc("mark_pickup_open_failed", { _order_id: orderId, _reason: reason }).single();
+  },
+
+  confirmPickupClosed(boxId: number) {
+    return supabase.rpc("confirm_pickup_closed", { _box_id: boxId }).single();
+  },
+
   completeOrder(orderId: string) {
     return supabase
       .from("orders")
-      .update({ status: "completed", picked_up_at: new Date().toISOString() })
-      .eq("id", orderId);
+      .update({ status: "completed", picked_up_at: new Date().toISOString(), completed_at: new Date().toISOString() })
+      .eq("id", orderId)
+      .is("deleted_at", null);
   },
 
-  confirmPaid(orderId: string, totalAmount: number) {
+  markPaid(orderId: string, totalAmount: number) {
     return supabase
       .from("orders")
       .update({
         is_paid: true,
         total_amount: totalAmount,
-        status: "completed",
-        picked_up_at: new Date().toISOString(),
       })
-      .eq("id", orderId);
+      .eq("id", orderId)
+      .is("deleted_at", null);
+  },
+
+  softDeleteOrder(orderId: string) {
+    return supabase
+      .from("orders")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", orderId)
+      .is("deleted_at", null);
+  },
+
+  adminForceResetLocker(boxId: number, message: string) {
+    return supabase.rpc("admin_force_reset_locker", { _box_id: boxId, _message: message }).single();
   },
 };
 

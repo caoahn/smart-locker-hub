@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState, ReactNode } from "react
 import { authApi, roleApi } from "@/integrations/supabase/api";
 import type { Session, User } from "@supabase/supabase-js";
 
-type Role = "admin" | "shipper" | null;
+export type Role = "admin" | "shipper" | "customer" | null;
 
 interface AuthContextValue {
   user: User | null;
@@ -44,6 +44,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data } = await roleApi.getUserRoles(uid);
     if (data?.some((r) => r.role === "admin")) setRole("admin");
     else if (data?.some((r) => r.role === "shipper")) setRole("shipper");
+    else if (data?.some((r) => r.role === "customer")) setRole("customer");
     else setRole(null);
     setLoading(false);
   }

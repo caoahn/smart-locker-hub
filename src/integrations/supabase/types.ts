@@ -62,11 +62,21 @@ export type Database = {
       orders: {
         Row: {
           box_id: number
+          completed_at: string | null
           created_at: string
+          customer_email: string | null
+          customer_id: string | null
+          deleted_at: string | null
+          deposited_at: string | null
+          failure_reason: string | null
           id: string
           is_paid: boolean
-          otp_code: string
+          otp_code: string | null
+          otp_expires_at: string | null
+          otp_used_at: string | null
           picked_up_at: string | null
+          pickup_started_at: string | null
+          reservation_expires_at: string | null
           shipper_id: string | null
           start_time: string
           status: string
@@ -75,11 +85,21 @@ export type Database = {
         }
         Insert: {
           box_id: number
+          completed_at?: string | null
           created_at?: string
+          customer_email?: string | null
+          customer_id?: string | null
+          deleted_at?: string | null
+          deposited_at?: string | null
+          failure_reason?: string | null
           id?: string
           is_paid?: boolean
-          otp_code: string
+          otp_code?: string | null
+          otp_expires_at?: string | null
+          otp_used_at?: string | null
           picked_up_at?: string | null
+          pickup_started_at?: string | null
+          reservation_expires_at?: string | null
           shipper_id?: string | null
           start_time?: string
           status?: string
@@ -88,11 +108,21 @@ export type Database = {
         }
         Update: {
           box_id?: number
+          completed_at?: string | null
           created_at?: string
+          customer_email?: string | null
+          customer_id?: string | null
+          deleted_at?: string | null
+          deposited_at?: string | null
+          failure_reason?: string | null
           id?: string
           is_paid?: boolean
-          otp_code?: string
+          otp_code?: string | null
+          otp_expires_at?: string | null
+          otp_used_at?: string | null
           picked_up_at?: string | null
+          pickup_started_at?: string | null
+          reservation_expires_at?: string | null
           shipper_id?: string | null
           start_time?: string
           status?: string
@@ -105,6 +135,56 @@ export type Database = {
             columns: ["box_id"]
             isOneToOne: false
             referencedRelation: "lockers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notifications: {
+        Row: {
+          channel: string
+          content: string
+          created_at: string
+          customer_id: string | null
+          id: string
+          order_id: string | null
+          recipient_email: string | null
+          recipient_phone: string | null
+          sent_at: string | null
+          status: string
+          subject: string | null
+        }
+        Insert: {
+          channel?: string
+          content: string
+          created_at?: string
+          customer_id?: string | null
+          id?: string
+          order_id?: string | null
+          recipient_email?: string | null
+          recipient_phone?: string | null
+          sent_at?: string | null
+          status?: string
+          subject?: string | null
+        }
+        Update: {
+          channel?: string
+          content?: string
+          created_at?: string
+          customer_id?: string | null
+          id?: string
+          order_id?: string | null
+          recipient_email?: string | null
+          recipient_phone?: string | null
+          sent_at?: string | null
+          status?: string
+          subject?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
             referencedColumns: ["id"]
           },
         ]
@@ -192,6 +272,32 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      admin_force_reset_locker: {
+        Args: { _box_id: number; _message: string | null }
+        Returns: {
+          box_id: number
+          completed: boolean
+          reason: string
+        }[]
+      }
+      confirm_dropoff_closed: {
+        Args: { _box_id: number }
+        Returns: {
+          box_id: number
+          notification_id: string | null
+          order_id: string
+          otp_code: string
+          otp_expires_at: string
+        }[]
+      }
+      confirm_pickup_closed: {
+        Args: { _box_id: number }
+        Returns: {
+          completed: boolean
+          order_id: string | null
+          reason: string
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -210,6 +316,57 @@ export type Database = {
           total_amount: number
         }[]
       }
+      mark_dropoff_open_failed: {
+        Args: { _order_id: string; _reason: string | null }
+        Returns: {
+          box_id: number
+          locker_status: string
+          order_id: string
+          order_status: string
+        }[]
+      }
+      mark_pickup_open_failed: {
+        Args: { _order_id: string; _reason: string | null }
+        Returns: {
+          box_id: number
+          locker_status: string
+          order_id: string
+          order_status: string
+        }[]
+      }
+      request_dropoff_open: {
+        Args: { _order_id: string }
+        Returns: {
+          box_id: number
+          locker_status: string
+          order_id: string
+          order_status: string
+        }[]
+      }
+      reserve_locker_for_dropoff: {
+        Args: {
+          _box_id: number
+          _customer_email: string | null
+          _customer_phone: string
+        }
+        Returns: {
+          box_id: number
+          locker_status: string
+          order_id: string
+          order_status: string
+          reservation_expires_at: string
+        }[]
+      }
+      verify_pickup_otp: {
+        Args: { _box_id: number; _otp: string }
+        Returns: {
+          allowed: boolean
+          is_paid: boolean | null
+          order_id: string | null
+          reason: string
+          total_amount: number | null
+        }[]
+      }
       verify_otp: {
         Args: { _box_id: number; _otp: string }
         Returns: {
@@ -220,7 +377,7 @@ export type Database = {
       }
     }
     Enums: {
-      app_role: "admin" | "shipper"
+      app_role: "admin" | "shipper" | "customer"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -348,7 +505,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["admin", "shipper"],
+      app_role: ["admin", "shipper", "customer"],
     },
   },
 } as const

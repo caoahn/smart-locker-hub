@@ -40,7 +40,7 @@ export default function Auth() {
 
   useEffect(() => {
     if (!loading && user) {
-      navigate(role === "admin" ? "/admin" : "/shipper", { replace: true });
+      navigate(role === "admin" ? "/admin" : role === "shipper" ? "/shipper" : "/lookup", { replace: true });
     }
   }, [user, role, loading, navigate]);
 
@@ -155,7 +155,7 @@ export default function Auth() {
               </Button>
 
               <p className="text-xs text-muted-foreground text-center">
-                Tài khoản mới mặc định là Shipper. Quản trị viên có thể nâng cấp lên Admin.
+                Tài khoản mới mặc định là Khách hàng. Admin sẽ cấp quyền Shipper hoặc Admin khi cần.
               </p>
             </form>
           </TabsContent>

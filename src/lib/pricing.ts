@@ -10,6 +10,7 @@ export function calculateFee(startTime: string | Date, cfg: PricingConfig, now: 
   const elapsedMs = Math.max(0, now.getTime() - start);
   const elapsedHours = elapsedMs / (1000 * 60 * 60);
   if (elapsedHours <= cfg.base_hours) return cfg.base_fee;
+
   const overdueHours = elapsedHours - cfg.base_hours;
   const overdueBlocks = Math.ceil(overdueHours / cfg.overdue_hours);
   return cfg.base_fee + overdueBlocks * cfg.overdue_fee;
@@ -24,12 +25,7 @@ export function formatVND(n: number): string {
   return new Intl.NumberFormat("vi-VN").format(Math.round(n)) + " ₫";
 }
 
-export function generateOTP(): string {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-}
-
 export function buildVietQR(bankCode: string, account: string, amount: number, content: string): string {
-  // Uses VietQR.io static image API — no key required
   const params = new URLSearchParams({
     amount: String(amount),
     addInfo: content,

@@ -1,10 +1,11 @@
 import { Navigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { Loader2 } from "lucide-react";
+import type { Role } from "@/hooks/useAuth";
 
 interface Props {
   children: React.ReactNode;
-  allow: ("admin" | "shipper")[];
+  allow: NonNullable<Role>[];
 }
 
 export default function ProtectedRoute({ children, allow }: Props) {

@@ -1,11 +1,12 @@
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Package, Search, Truck, ShieldCheck, Bell, QrCode } from "lucide-react";
+import { Bell, KeyRound, LogOut, Package, QrCode, Search, ShieldCheck, Truck } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
 const Index = () => {
-  const { user, role } = useAuth();
+  const { user, role, signOut } = useAuth();
+  const dashboardPath = role === "admin" ? "/admin" : role === "shipper" ? "/shipper" : "/lookup";
   return (
     <div className="min-h-screen bg-background">
       {/* Hero */}
@@ -28,12 +29,28 @@ const Index = () => {
                   <Search className="mr-2 h-5 w-5" /> Tra cứu đơn hàng
                 </Button>
               </Link>
+              <Link to="/locker-terminal">
+                <Button size="lg" variant="outline" className="border-white/40 bg-white/10 text-white hover:bg-white/20">
+                  <KeyRound className="mr-2 h-5 w-5" /> Thiết bị locker
+                </Button>
+              </Link>
               {user ? (
-                <Link to={role === "admin" ? "/admin" : "/shipper"}>
+                <>
+                  <Link to={dashboardPath}>
                   <Button size="lg" variant="outline" className="border-white/40 bg-white/10 text-white hover:bg-white/20">
                     Vào bảng điều khiển
                   </Button>
-                </Link>
+                  </Link>
+                  <Button
+                    type="button"
+                    size="lg"
+                    variant="outline"
+                    onClick={signOut}
+                    className="border-white/40 bg-white/10 text-white hover:bg-white/20"
+                  >
+                    <LogOut className="mr-2 h-5 w-5" /> Đăng xuất
+                  </Button>
+                </>
               ) : (
                 <Link to="/auth">
                   <Button size="lg" variant="outline" className="border-white/40 bg-white/10 text-white hover:bg-white/20">
