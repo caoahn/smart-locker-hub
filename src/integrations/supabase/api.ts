@@ -36,13 +36,13 @@ export const authApi = {
     return supabase.auth.signInWithPassword({ email, password });
   },
 
-  signUp(email: string, password: string, displayName: string, emailRedirectTo: string) {
+  signUp(email: string, password: string, displayName: string, emailRedirectTo: string, role: "admin" | "shipper" | "customer") {
     return supabase.auth.signUp({
       email,
       password,
       options: {
         emailRedirectTo,
-        data: { display_name: displayName },
+        data: { display_name: displayName, role },
       },
     });
   },
