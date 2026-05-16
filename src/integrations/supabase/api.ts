@@ -8,6 +8,7 @@ export type AlertRow = Tables["alerts"]["Row"];
 export type LockerRow = Tables["lockers"]["Row"];
 export type NotificationRow = Tables["notifications"]["Row"];
 export type OrderRow = Tables["orders"]["Row"];
+export type ProfileRow = Tables["profiles"]["Row"];
 export type SettingsRow = Tables["settings"]["Row"];
 export type UserRoleRow = Tables["user_roles"]["Row"];
 
@@ -20,6 +21,9 @@ export type ReserveDropoffResult = Database["public"]["Functions"]["reserve_lock
 export type DropoffClosedResult = Database["public"]["Functions"]["confirm_dropoff_closed"]["Returns"][number];
 export type VerifyPickupResult = Database["public"]["Functions"]["verify_pickup_otp"]["Returns"][number];
 export type PickupClosedResult = Database["public"]["Functions"]["confirm_pickup_closed"]["Returns"][number];
+export type CustomerOrderRow = Database["public"]["Functions"]["list_customer_orders"]["Returns"][number];
+
+export type UpdateProfileInput = Pick<ProfileRow, "display_name" | "phone">;
 
 type AuthListener = (event: AuthChangeEvent, session: Session | null) => void;
 
@@ -58,6 +62,20 @@ export const roleApi = {
   },
 };
 
+export const profileApi = {
+  getProfile(userId: string) {
+    return supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
+  },
+
+  upsertProfile(userId: string, input: UpdateProfileInput) {
+    return supabase
+      .from("profiles")
+      .upsert({ id: userId, ...input }, { onConflict: "id" })
+      .select("*")
+      .single();
+  },
+};
+
 export const lockerApi = {
   listLockers() {
     return supabase.from("lockers").select("*").order("id");
@@ -81,6 +99,10 @@ export const lockerApi = {
 export const orderApi = {
   listOrders() {
     return supabase.from("orders").select("*").is("deleted_at", null).order("created_at", { ascending: false });
+  },
+
+  listCustomerOrders() {
+    return supabase.rpc("list_customer_orders");
   },
 
   reserveDropoff(boxId: number, customerPhone: string, customerEmail: string | null) {
@@ -198,6 +220,17 @@ export const realtimeApi = {
     const channel = supabase
       .channel("ship-rt")
       .on("postgres_changes", { event: "*", schema: "public", table: "lockers" }, onChange)
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  },
+
+  subscribeToCustomerOrderChanges(onChange: () => void) {
+    const channel = supabase
+      .channel("customer-orders-rt")
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, onChange)
       .subscribe();
 
     return () => {

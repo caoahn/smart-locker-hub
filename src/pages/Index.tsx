@@ -5,7 +5,7 @@ import { Bell, KeyRound, LogOut, Package, QrCode, Search, ShieldCheck, Truck } f
 import { useAuth } from "@/hooks/useAuth";
 
 const Index = () => {
-  const { user, role, signOut } = useAuth();
+  const { user, role, displayName, signOut } = useAuth();
   const dashboardPath = role === "admin" ? "/admin" : role === "shipper" ? "/shipper" : "/lookup";
   return (
     <div className="min-h-screen bg-background">
@@ -24,6 +24,11 @@ const Index = () => {
               Giao nhận không tiếp xúc qua tủ khoá ESP32. Tra cứu đơn, thanh toán QR và mở tủ tự động chỉ trong vài giây.
             </p>
             <div className="flex flex-wrap gap-3">
+              {user && (
+                <div className="w-full text-sm text-white/80">
+                  Xin chào, <span className="font-semibold text-white">{displayName}</span>
+                </div>
+              )}
               <Link to="/lookup">
                 <Button size="lg" className="bg-white text-primary hover:bg-white/90 shadow-glow">
                   <Search className="mr-2 h-5 w-5" /> Tra cứu đơn hàng

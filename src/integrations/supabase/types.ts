@@ -316,6 +316,27 @@ export type Database = {
           total_amount: number
         }[]
       }
+      list_customer_orders: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          box_id: number
+          completed_at: string | null
+          created_at: string
+          customer_email: string | null
+          deposited_at: string | null
+          failure_reason: string | null
+          id: string
+          is_paid: boolean
+          otp_expires_at: string | null
+          otp_used_at: string | null
+          picked_up_at: string | null
+          pickup_started_at: string | null
+          start_time: string
+          status: string
+          total_amount: number
+          user_phone: string
+        }[]
+      }
       mark_dropoff_open_failed: {
         Args: { _order_id: string; _reason: string | null }
         Returns: {
