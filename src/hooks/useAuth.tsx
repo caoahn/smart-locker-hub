@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { authApi, profileApi, roleApi, type ProfileRow, type UpdateProfileInput } from "@/integrations/supabase/api";
 import type { Session, User } from "@supabase/supabase-js";
 
@@ -24,15 +24,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<Role>(null);
   const [profile, setProfile] = useState<ProfileRow | null>(null);
   const [loading, setLoading] = useState(true);
+  const initializedRef = useRef(false);
+  const currentAccountUserIdRef = useRef<string | null>(null);
+  const accountRequestRef = useRef(0);
 
   useEffect(() => {
     const { data: sub } = authApi.onAuthStateChange((_event, s) => {
       setSession(s);
       setUser(s?.user ?? null);
       if (s?.user) {
-        setLoading(true);
-        setTimeout(() => fetchAccount(s.user.id), 0);
+        const shouldShowLoading = !initializedRef.current || currentAccountUserIdRef.current !== s.user.id;
+        setTimeout(() => fetchAccount(s.user.id, shouldShowLoading), 0);
       } else {
+        initializedRef.current = true;
+        currentAccountUserIdRef.current = null;
         setRole(null);
         setProfile(null);
         setLoading(false);
@@ -41,17 +46,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     authApi.getSession().then(({ data: { session: s } }) => {
       setSession(s);
       setUser(s?.user ?? null);
-      if (s?.user) fetchAccount(s.user.id);
-      else setLoading(false);
+      if (s?.user) fetchAccount(s.user.id, true);
+      else {
+        initializedRef.current = true;
+        setLoading(false);
+      }
     });
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  async function fetchAccount(uid: string) {
+  async function fetchAccount(uid: string, showLoading = false) {
+    const requestId = accountRequestRef.current + 1;
+    accountRequestRef.current = requestId;
+    if (showLoading) setLoading(true);
+
     const [rolesResult, profileResult] = await Promise.all([
       roleApi.getUserRoles(uid),
       profileApi.getProfile(uid),
     ]);
+
+    if (requestId !== accountRequestRef.current) return;
 
     const roles = rolesResult.data ?? [];
     if (roles.some((item) => item.role === "admin")) setRole("admin");
@@ -60,6 +74,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     else setRole(null);
 
     setProfile(profileResult.data ?? null);
+    currentAccountUserIdRef.current = uid;
+    initializedRef.current = true;
     setLoading(false);
   }
 
