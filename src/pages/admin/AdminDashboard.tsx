@@ -147,6 +147,17 @@ export default function AdminDashboard() {
   }, [orders, settings, now]);
 
   async function masterOpen(boxId: number) {
+    const order = orders.find((item) => item.box_id === boxId && item.status === "stored");
+    if (!order) return toast.error("Không tìm thấy đơn đang chờ nhận trong tủ này");
+    if (!confirm(`Cấp OTP khẩn cấp cho tủ #${boxId}?`)) return;
+
+    const issuedMaster = await orderApi.adminConfirmPaymentAndIssueOtp(order.id, 0);
+    if (issuedMaster.error || !issuedMaster.data) return toast.error(issuedMaster.error?.message ?? "Không thể cấp OTP khẩn cấp");
+    const data = issuedMaster.data;
+    toast.success(`OTP khẩn cấp: ${data.otp_code}`);
+    loadAll();
+    return;
+
     if (!confirm(`Mở khẩn cấp tủ #${boxId}?`)) return;
     if (!hardwareApi.isConfigured()) return toast.error("Chưa cấu hình IP_HARD_WARE cho phần cứng");
 
@@ -164,6 +175,12 @@ export default function AdminDashboard() {
 
   async function confirmPaid(order: Order) {
     const fee = settings ? calculateFee(order.start_time, settings) : order.total_amount;
+    const issued = await orderApi.adminConfirmPaymentAndIssueOtp(order.id, fee);
+    if (issued.error || !issued.data) return toast.error(issued.error?.message ?? "Không thể xác nhận thanh toán");
+    toast.success(`Đã xác nhận thanh toán. OTP: ${issued.data.otp_code}`);
+    loadAll();
+    return;
+
     const { error } = await orderApi.markPaid(order.id, fee);
     if (error) return toast.error(error.message);
     toast.success("Đã xác nhận thanh toán");

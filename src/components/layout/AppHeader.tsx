@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Package, LogOut, UserRound } from "lucide-react";
+import { Bell, Package, LogOut, UserRound } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { Badge } from "@/components/ui/badge";
 
@@ -23,6 +23,13 @@ export default function AppHeader({ title }: { title: string }) {
         </Link>
         <div className="flex items-center gap-2">
           {role && <Badge variant="outline" className="hidden sm:inline-flex">{roleLabel}</Badge>}
+          {user && (
+            <Button asChild variant="ghost" size="icon" aria-label="Thông báo & OTP">
+              <Link to="/notifications">
+                <Bell className="h-4 w-4" />
+              </Link>
+            </Button>
+          )}
           {user && (
             <div className="hidden md:flex items-center gap-2 min-w-0 text-sm">
               <UserRound className="h-4 w-4 text-muted-foreground shrink-0" />

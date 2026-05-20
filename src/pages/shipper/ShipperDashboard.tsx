@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { hardwareApi } from "@/integrations/hardware/api";
+import { hardwareApi, type LockerSignals } from "@/integrations/hardware/api";
 import { lockerApi, orderApi, realtimeApi } from "@/integrations/supabase/api";
 import AppHeader from "@/components/layout/AppHeader";
 import { Card } from "@/components/ui/card";
@@ -17,7 +17,6 @@ interface Locker {
 }
 
 type PendingDropoff = {
-  orderId: string;
   box: number;
   customerPhone: string;
   customerEmail?: string;
@@ -25,8 +24,7 @@ type PendingDropoff = {
 
 type CompletedDropoff = {
   box: number;
-  otp: string;
-  otpExpiresAt: string;
+  orderId: string;
   customerPhone: string;
 };
 
@@ -42,6 +40,24 @@ const lockerLabels: Record<string, string> = {
   overdue: "Quá hạn",
 };
 
+function getMissingDropoffSteps(signals: LockerSignals | null) {
+  if (!signals) return ["chưa đọc được cảm biến"];
+
+  const missing: string[] = [];
+  if (!signals.itemPresent) missing.push("chưa bỏ hàng vào tủ");
+  if (!signals.doorClosed) missing.push("chưa đóng cửa");
+  if (!signals.locked) missing.push("chưa khóa chốt cửa");
+  return missing;
+}
+
+function SensorBadge({ ok, label }: { ok: boolean; label: string }) {
+  return (
+    <Badge variant="outline" className={ok ? "border-success text-success" : "border-warning text-warning"}>
+      {ok ? "OK" : "Chờ"} · {label}
+    </Badge>
+  );
+}
+
 export default function ShipperDashboard() {
   const [lockers, setLockers] = useState<Locker[]>([]);
   const [phone, setPhone] = useState("");
@@ -50,6 +66,8 @@ export default function ShipperDashboard() {
   const [busy, setBusy] = useState(false);
   const [pendingDropoff, setPendingDropoff] = useState<PendingDropoff | null>(null);
   const [completedDropoff, setCompletedDropoff] = useState<CompletedDropoff | null>(null);
+  const [signals, setSignals] = useState<LockerSignals | null>(null);
+  const [signalError, setSignalError] = useState<string | null>(null);
 
   async function load() {
     const { data } = await lockerApi.listLockers();
@@ -61,7 +79,38 @@ export default function ShipperDashboard() {
     return realtimeApi.subscribeToLockerChanges(load);
   }, []);
 
-  async function reserveAndOpenLocker() {
+  useEffect(() => {
+    if (!pendingDropoff) {
+      setSignals(null);
+      setSignalError(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function pollSignals() {
+      try {
+        const response = await hardwareApi.getLockerSignals(pendingDropoff.box);
+        if (!cancelled) {
+          setSignals(response.data);
+          setSignalError(null);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setSignalError(error instanceof Error ? error.message : "Không đọc được cảm biến tủ");
+        }
+      }
+    }
+
+    pollSignals();
+    const timer = window.setInterval(pollSignals, 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [pendingDropoff]);
+
+  async function openLockerForDropoff() {
     const parsedPhone = phoneSchema.safeParse(phone);
     if (!parsedPhone.success) return toast.error(parsedPhone.error.errors[0].message);
 
@@ -74,53 +123,43 @@ export default function ShipperDashboard() {
     setBusy(true);
     setCompletedDropoff(null);
 
-    const reserved = await orderApi.reserveDropoff(selected, parsedPhone.data.trim(), parsedEmail.data.trim() || null);
-    if (reserved.error || !reserved.data) {
-      setBusy(false);
-      return toast.error(reserved.error?.message ?? "Không thể đặt tủ");
-    }
-
     try {
       await hardwareApi.openLocker(selected, "dropoff");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Phần cứng mở cửa thất bại";
-      await orderApi.markDropoffOpenFailed(reserved.data.order_id, message);
       setBusy(false);
-      load();
-      return toast.error(message);
-    }
-
-    const opened = await orderApi.requestDropoffOpen(reserved.data.order_id);
-    if (opened.error || !opened.data) {
-      await orderApi.markDropoffOpenFailed(reserved.data.order_id, opened.error?.message ?? "hardware_open_failed");
-      setBusy(false);
-      load();
-      return toast.error(opened.error?.message ?? "Phần cứng mở cửa thất bại");
+      return toast.error(error instanceof Error ? error.message : "Phần cứng mở cửa thất bại");
     }
 
     setBusy(false);
     setPendingDropoff({
-      orderId: opened.data.order_id,
-      box: opened.data.box_id,
+      box: selected,
       customerPhone: parsedPhone.data.trim(),
       customerEmail: parsedEmail.data.trim() || undefined,
     });
-    toast.success(`Tủ #${opened.data.box_id} đã mở`);
+    toast.success(`Tủ #${selected} đã mở. Hãy bỏ hàng vào và khóa cửa.`);
   }
 
   async function confirmDoorClosed() {
     if (!pendingDropoff) return;
 
+    const missing = getMissingDropoffSteps(signals);
+    if (missing.length > 0) {
+      return toast.error(`Shipper chưa thực hiện: ${missing.join(", ")}`);
+    }
+
     setBusy(true);
-    const { data, error } = await orderApi.confirmDropoffClosed(pendingDropoff.box);
+    const { data, error } = await orderApi.createOrderAfterDropoff(
+      pendingDropoff.box,
+      pendingDropoff.customerPhone,
+      pendingDropoff.customerEmail ?? null,
+    );
     setBusy(false);
 
-    if (error || !data) return toast.error(error?.message ?? "Không thể xác nhận đóng cửa");
+    if (error || !data) return toast.error(error?.message ?? "Không thể tạo đơn sau khi đóng tủ");
 
     setCompletedDropoff({
       box: data.box_id,
-      otp: data.otp_code,
-      otpExpiresAt: data.otp_expires_at,
+      orderId: data.order_id,
       customerPhone: pendingDropoff.customerPhone,
     });
     setPendingDropoff(null);
@@ -128,10 +167,12 @@ export default function ShipperDashboard() {
     setEmail("");
     setSelected(null);
     load();
-    toast.success("Đã lưu hàng và tạo OTP cho khách");
+    toast.success("Đã tạo đơn và bắt đầu tính thời gian lưu tủ");
   }
 
   const empty = lockers.filter((locker) => locker.status === "empty");
+  const missingSteps = getMissingDropoffSteps(signals);
+  const dropoffReady = pendingDropoff && missingSteps.length === 0;
 
   if (pendingDropoff) {
     return (
@@ -142,9 +183,10 @@ export default function ShipperDashboard() {
             <div className="h-16 w-16 mx-auto rounded-2xl gradient-primary flex items-center justify-center mb-4">
               <DoorOpen className="h-8 w-8 text-primary-foreground" />
             </div>
-            <h2 className="text-2xl font-bold mb-1">Tủ #{pendingDropoff.box} đã mở</h2>
-            <p className="text-muted-foreground mb-6">Đơn {pendingDropoff.orderId.slice(0, 8)} đang chờ cảm biến cửa đóng.</p>
-            <div className="p-4 rounded-xl bg-muted/50 mb-6 text-left space-y-2">
+            <h2 className="text-2xl font-bold mb-1">Tủ #{pendingDropoff.box} đang mở</h2>
+            <p className="text-muted-foreground mb-6">Bỏ hàng vào tủ, đóng cửa và chờ chốt khóa xác nhận.</p>
+
+            <div className="p-4 rounded-xl bg-muted/50 mb-4 text-left space-y-2">
               <div className="flex items-center gap-2 text-sm">
                 <Phone className="h-4 w-4 text-muted-foreground" />
                 <span className="font-mono">{pendingDropoff.customerPhone}</span>
@@ -156,9 +198,26 @@ export default function ShipperDashboard() {
                 </div>
               )}
             </div>
-            <Button size="lg" className="w-full gradient-primary" onClick={confirmDoorClosed} disabled={busy}>
+
+            <div className="rounded-xl border bg-background/70 p-4 mb-4 text-left space-y-3">
+              <div className="font-semibold text-sm">Tín hiệu phần cứng</div>
+              {signalError ? (
+                <div className="text-sm text-destructive">{signalError}</div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  <SensorBadge ok={Boolean(signals?.itemPresent)} label="IR có hàng" />
+                  <SensorBadge ok={Boolean(signals?.doorClosed)} label="Cửa đã đóng" />
+                  <SensorBadge ok={Boolean(signals?.locked)} label="Chốt đã khóa" />
+                </div>
+              )}
+              {missingSteps.length > 0 && (
+                <p className="text-sm text-warning">Shipper chưa thực hiện: {missingSteps.join(", ")}.</p>
+              )}
+            </div>
+
+            <Button size="lg" className="w-full gradient-primary" onClick={confirmDoorClosed} disabled={busy || !dropoffReady}>
               {busy ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <DoorClosed className="mr-2 h-5 w-5" />}
-              Cửa đã đóng
+              Đã đóng và khóa tủ
             </Button>
           </Card>
         </main>
@@ -176,16 +235,8 @@ export default function ShipperDashboard() {
               <CheckCircle2 className="h-6 w-6 text-success mt-1" />
               <div className="flex-1">
                 <div className="font-bold">Tủ #{completedDropoff.box} đã chứa hàng</div>
-                <div className="text-sm text-muted-foreground">OTP đã được tạo cho {completedDropoff.customerPhone}</div>
-                <div className="mt-3 grid sm:grid-cols-2 gap-3">
-                  <div className="rounded-lg bg-background/80 p-3">
-                    <div className="text-xs text-muted-foreground">OTP</div>
-                    <div className="font-mono text-2xl font-bold tracking-widest">{completedDropoff.otp}</div>
-                  </div>
-                  <div className="rounded-lg bg-background/80 p-3">
-                    <div className="text-xs text-muted-foreground">Hết hạn</div>
-                    <div className="font-medium">{new Date(completedDropoff.otpExpiresAt).toLocaleString("vi-VN")}</div>
-                  </div>
+                <div className="text-sm text-muted-foreground">
+                  Đã tạo đơn {completedDropoff.orderId.slice(0, 8)} cho {completedDropoff.customerPhone}. Khách sẽ nhận OTP sau khi thanh toán.
                 </div>
               </div>
             </div>
@@ -195,7 +246,7 @@ export default function ShipperDashboard() {
         <Card className="p-6 gradient-card shadow-card">
           <div className="flex items-center gap-3 mb-4">
             <Truck className="h-6 w-6 text-primary" />
-            <h2 className="text-xl font-bold">Tạo đơn gửi hàng</h2>
+            <h2 className="text-xl font-bold">Gửi hàng vào tủ</h2>
           </div>
           <div className="space-y-4">
             <div className="grid sm:grid-cols-2 gap-4">
@@ -244,9 +295,9 @@ export default function ShipperDashboard() {
               </div>
               {empty.length === 0 && <p className="text-sm text-warning mt-2">Hiện không có tủ trống.</p>}
             </div>
-            <Button size="lg" className="w-full gradient-primary" onClick={reserveAndOpenLocker} disabled={busy || selected === null || !phone}>
+            <Button size="lg" className="w-full gradient-primary" onClick={openLockerForDropoff} disabled={busy || selected === null || !phone}>
               {busy ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <DoorOpen className="mr-2 h-5 w-5" />}
-              Đặt tủ & mở cửa #{selected ?? "?"}
+              Mở tủ #{selected ?? "?"}
             </Button>
           </div>
         </Card>

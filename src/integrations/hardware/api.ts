@@ -1,6 +1,13 @@
 type HardwareMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 type HardwareOpenContext = "dropoff" | "pickup" | "admin";
 
+export type LockerSignals = {
+  doorClosed: boolean;
+  locked: boolean;
+  itemPresent: boolean;
+  raw: unknown;
+};
+
 export type HardwareRequestOptions = {
   method?: HardwareMethod;
   baseUrl?: string;
@@ -29,6 +36,7 @@ export class HardwareApiError extends Error {
 }
 
 const DEFAULT_OPEN_PATH = "/lockers/:boxId/open";
+const DEFAULT_STATUS_PATH = "/lockers/:boxId/status";
 const DEFAULT_TIMEOUT_MS = 8000;
 
 type NumberMap = Record<number, number>;
@@ -47,6 +55,10 @@ function getOpenPathTemplate() {
   return import.meta.env.HARDWARE_OPEN_PATH || import.meta.env.VITE_HARDWARE_OPEN_PATH || DEFAULT_OPEN_PATH;
 }
 
+function getStatusPathTemplate() {
+  return import.meta.env.HARDWARE_STATUS_PATH || import.meta.env.VITE_HARDWARE_STATUS_PATH || DEFAULT_STATUS_PATH;
+}
+
 function getTimeoutMs() {
   const raw = import.meta.env.HARDWARE_TIMEOUT_MS || import.meta.env.VITE_HARDWARE_TIMEOUT_MS;
   const parsed = Number(raw);
@@ -59,6 +71,10 @@ function getRawBoxIdMap() {
 
 function getRawOpenPathMap() {
   return import.meta.env.HARDWARE_OPEN_PATHS || import.meta.env.VITE_HARDWARE_OPEN_PATHS || "";
+}
+
+function getRawStatusPathMap() {
+  return import.meta.env.HARDWARE_STATUS_PATHS || import.meta.env.VITE_HARDWARE_STATUS_PATHS || "";
 }
 
 function normalizeBaseUrl(rawBaseUrl: string) {
@@ -233,6 +249,45 @@ export function resolveOpenTarget(boxId: number) {
   };
 }
 
+export function resolveStatusTarget(boxId: number) {
+  const hardwareBoxId = parseHardwareBoxIdMap(getRawBoxIdMap())[boxId] ?? boxId;
+  const baseUrl = parseHardwareBaseUrlMap(getRawBaseUrlMap())[boxId] ?? normalizeBaseUrl(getRawBaseUrl());
+  const statusPathMap = parseHardwareOpenPathMap(getRawStatusPathMap());
+  const template = statusPathMap[boxId] ?? getStatusPathTemplate();
+
+  return {
+    boxId,
+    baseUrl,
+    hardwareBoxId,
+    path: applyOpenPathTemplate(template, boxId, hardwareBoxId),
+  };
+}
+
+function booleanFromSignal(data: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = data[key];
+    if (typeof value === "boolean") return value;
+    if (typeof value === "number") return value !== 0;
+    if (typeof value === "string") {
+      const normalized = value.trim().toLowerCase();
+      if (["1", "true", "yes", "closed", "locked", "present"].includes(normalized)) return true;
+      if (["0", "false", "no", "open", "unlocked", "empty"].includes(normalized)) return false;
+    }
+  }
+  return false;
+}
+
+function normalizeSignals(data: unknown): LockerSignals {
+  const source = data && typeof data === "object" ? (data as Record<string, unknown>) : {};
+
+  return {
+    doorClosed: booleanFromSignal(source, ["door_closed", "doorClosed", "isDoorClosed", "closed"]),
+    locked: booleanFromSignal(source, ["locked", "lock_closed", "lockClosed", "isLocked", "latch_locked"]),
+    itemPresent: booleanFromSignal(source, ["item_present", "itemPresent", "has_item", "hasItem", "ir", "ir_detected"]),
+    raw: data,
+  };
+}
+
 export const hardwareApi = {
   isConfigured() {
     return Boolean(normalizeBaseUrl(getRawBaseUrl()) || Object.keys(parseHardwareBaseUrlMap(getRawBaseUrlMap())).length);
@@ -244,6 +299,8 @@ export const hardwareApi = {
       baseUrlMap: parseHardwareBaseUrlMap(getRawBaseUrlMap()),
       openPath: getOpenPathTemplate(),
       openPathMap: parseHardwareOpenPathMap(getRawOpenPathMap()),
+      statusPath: getStatusPathTemplate(),
+      statusPathMap: parseHardwareOpenPathMap(getRawStatusPathMap()),
       boxIdMap: parseHardwareBoxIdMap(getRawBoxIdMap()),
       timeoutMs: getTimeoutMs(),
     };
@@ -273,6 +330,17 @@ export const hardwareApi = {
 
   health() {
     return request("/health", { method: "GET", timeoutMs: 3000 });
+  },
+
+  async getLockerSignals(boxId: number) {
+    const target = resolveStatusTarget(boxId);
+    const response = await request(target.path, {
+      method: "GET",
+      baseUrl: target.baseUrl,
+      timeoutMs: 2500,
+    });
+
+    return { ...response, data: normalizeSignals(response.data) };
   },
 
   async openLocker(boxId: number, context: HardwareOpenContext = "dropoff") {

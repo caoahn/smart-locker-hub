@@ -33,7 +33,7 @@ const signUpSchema = z
 
 export default function Auth() {
   const navigate = useNavigate();
-  const { user, role, loading } = useAuth();
+  const { user, loading } = useAuth();
   const [busy, setBusy] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -45,9 +45,9 @@ export default function Auth() {
 
   useEffect(() => {
     if (!loading && user) {
-      navigate(role === "admin" ? "/admin" : role === "shipper" ? "/shipper" : "/lookup", { replace: true });
+      navigate("/", { replace: true });
     }
-  }, [user, role, loading, navigate]);
+  }, [user, loading, navigate]);
 
   async function signIn(event: React.FormEvent) {
     event.preventDefault();

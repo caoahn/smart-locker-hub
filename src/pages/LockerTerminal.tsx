@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { z } from "zod";
 import { ArrowLeft, CheckCircle2, DoorClosed, DoorOpen, KeyRound, Loader2, Package } from "lucide-react";
@@ -7,6 +7,7 @@ import { hardwareApi } from "@/integrations/hardware/api";
 import { orderApi } from "@/integrations/supabase/api";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +18,7 @@ const terminalSchema = z.object({
 });
 
 const reasonLabels: Record<string, string> = {
+  payment_required: "Đơn hàng chưa thanh toán, vui lòng thanh toán để nhận OTP",
   allowed: "Hợp lệ",
   invalid_otp: "OTP không đúng",
   otp_expired: "OTP đã hết hạn",
@@ -31,6 +33,40 @@ export default function LockerTerminal() {
   const [busy, setBusy] = useState(false);
   const [opened, setOpened] = useState<{ boxId: number; orderId: string } | null>(null);
   const [completed, setCompleted] = useState(false);
+  const [doorClosed, setDoorClosed] = useState(false);
+  const [itemPresent, setItemPresent] = useState(true);
+  const [signalError, setSignalError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!opened) {
+      setSignalError(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function pollSignals() {
+      try {
+        const response = await hardwareApi.getLockerSignals(opened.boxId);
+        if (!cancelled) {
+          setDoorClosed(response.data.doorClosed);
+          setItemPresent(response.data.itemPresent);
+          setSignalError(null);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setSignalError(error instanceof Error ? error.message : "Không đọc được cảm biến tủ");
+        }
+      }
+    }
+
+    pollSignals();
+    const timer = window.setInterval(pollSignals, 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [opened]);
 
   async function verifyOtp(e: React.FormEvent) {
     e.preventDefault();
@@ -60,6 +96,8 @@ export default function LockerTerminal() {
     }
 
     setOpened({ boxId: parsed.data.boxId, orderId: data.order_id });
+    setDoorClosed(false);
+    setItemPresent(true);
     setCompleted(false);
     setBusy(false);
     toast.success(`Tủ #${parsed.data.boxId} đã mở`);
@@ -67,6 +105,9 @@ export default function LockerTerminal() {
 
   async function confirmClosed() {
     if (!opened) return;
+    if (!doorClosed) return toast.error("Công tắc cửa chưa báo đóng");
+    if (itemPresent) return toast.error("Cảm biến vẫn báo còn hàng trong tủ");
+
     setBusy(true);
     const { data, error } = await orderApi.confirmPickupClosed(opened.boxId);
     setBusy(false);
@@ -76,8 +117,28 @@ export default function LockerTerminal() {
 
     setCompleted(true);
     setOpened(null);
+    setDoorClosed(false);
+    setItemPresent(true);
     setOtp("");
     toast.success("Đơn hàng đã hoàn tất, tủ đã trống");
+  }
+
+  async function keepStored() {
+    if (!opened) return;
+    if (!doorClosed) return toast.error("Công tắc cửa chưa báo đóng");
+    if (!itemPresent) return toast.error("Tủ không còn hàng, hãy hoàn tất nhận hàng");
+
+    setBusy(true);
+    const { error } = await orderApi.returnPickupToStorage(opened.boxId);
+    setBusy(false);
+
+    if (error) return toast.error(error.message);
+
+    setOpened(null);
+    setDoorClosed(false);
+    setItemPresent(true);
+    setOtp("");
+    toast.info("Tủ đã đóng nhưng hàng vẫn còn. Đơn được lưu lại và phí sẽ tính lại sau thời gian miễn phí.");
   }
 
   return (
@@ -118,9 +179,38 @@ export default function LockerTerminal() {
                 <div className="text-3xl font-bold">Tủ #{opened.boxId}</div>
                 <div className="text-sm text-muted-foreground font-mono mt-1">{opened.orderId.slice(0, 8)}</div>
               </div>
-              <Button size="lg" className="w-full gradient-primary" onClick={confirmClosed} disabled={busy}>
+              <div className="rounded-lg border bg-muted/40 p-4 text-left space-y-3">
+                {signalError && (
+                  <div className="rounded-md bg-warning/10 p-2 text-xs text-warning">
+                    {signalError}. Có thể thao tác mô phỏng bằng các ô bên dưới khi chưa nối phần cứng.
+                  </div>
+                )}
+                <div className="flex items-start gap-3">
+                  <Checkbox id="door-closed" checked={doorClosed} onCheckedChange={(checked) => setDoorClosed(checked === true)} />
+                  <Label htmlFor="door-closed" className="leading-tight">Công tắc cửa đã đóng</Label>
+                </div>
+                <div className="flex items-start gap-3">
+                  <Checkbox id="item-present" checked={itemPresent} onCheckedChange={(checked) => setItemPresent(checked === true)} />
+                  <div>
+                    <Label htmlFor="item-present" className="leading-tight">Cảm biến vẫn còn hàng trong tủ</Label>
+                    <p className="mt-1 text-xs text-muted-foreground">Bỏ chọn khi khách đã lấy hàng ra khỏi tủ.</p>
+                  </div>
+                </div>
+              </div>
+
+              {doorClosed && itemPresent && (
+                <div className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-left text-sm">
+                  Hàng vẫn còn trong tủ. Nếu xác nhận đóng lại, đơn sẽ quay về trạng thái chờ nhận; phí được tính lại từ đầu với 2 giờ miễn phí rồi 3.000đ/giờ.
+                </div>
+              )}
+
+              <Button size="lg" className="w-full gradient-primary" onClick={confirmClosed} disabled={busy || !doorClosed || itemPresent}>
                 {busy ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <DoorClosed className="mr-2 h-5 w-5" />}
                 Cửa đã đóng
+              </Button>
+              <Button size="lg" variant="outline" className="w-full" onClick={keepStored} disabled={busy || !doorClosed || !itemPresent}>
+                {busy ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Package className="mr-2 h-5 w-5" />}
+                Đóng lại, tiếp tục lưu hàng
               </Button>
             </div>
           ) : (

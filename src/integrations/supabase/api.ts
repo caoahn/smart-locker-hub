@@ -18,10 +18,13 @@ export type UpdateSettingsInput = Pick<
 >;
 
 export type ReserveDropoffResult = Database["public"]["Functions"]["reserve_locker_for_dropoff"]["Returns"][number];
+export type CreateOrderAfterDropoffResult = Database["public"]["Functions"]["create_order_after_dropoff"]["Returns"][number];
 export type DropoffClosedResult = Database["public"]["Functions"]["confirm_dropoff_closed"]["Returns"][number];
 export type VerifyPickupResult = Database["public"]["Functions"]["verify_pickup_otp"]["Returns"][number];
 export type PickupClosedResult = Database["public"]["Functions"]["confirm_pickup_closed"]["Returns"][number];
 export type CustomerOrderRow = Database["public"]["Functions"]["list_customer_orders"]["Returns"][number];
+export type CustomerNotificationRow = Database["public"]["Functions"]["list_customer_notifications"]["Returns"][number];
+export type IssueOtpResult = Database["public"]["Functions"]["confirm_customer_payment_and_issue_otp"]["Returns"][number];
 
 export type UpdateProfileInput = Pick<ProfileRow, "display_name" | "phone">;
 
@@ -115,6 +118,16 @@ export const orderApi = {
       .single();
   },
 
+  createOrderAfterDropoff(boxId: number, customerPhone: string, customerEmail: string | null) {
+    return supabase
+      .rpc("create_order_after_dropoff", {
+        _box_id: boxId,
+        _customer_phone: customerPhone,
+        _customer_email: customerEmail,
+      })
+      .single();
+  },
+
   requestDropoffOpen(orderId: string) {
     return supabase.rpc("request_dropoff_open", { _order_id: orderId }).single();
   },
@@ -131,12 +144,35 @@ export const orderApi = {
     return supabase.rpc("lookup_orders_by_phone", { _phone: phone });
   },
 
+  confirmCustomerPaymentAndIssueOtp(orderId: string, phone: string, totalAmount: number) {
+    return supabase
+      .rpc("confirm_customer_payment_and_issue_otp", {
+        _order_id: orderId,
+        _phone: phone,
+        _total_amount: totalAmount,
+      })
+      .single();
+  },
+
+  adminConfirmPaymentAndIssueOtp(orderId: string, totalAmount: number) {
+    return supabase
+      .rpc("admin_confirm_payment_and_issue_otp", {
+        _order_id: orderId,
+        _total_amount: totalAmount,
+      })
+      .single();
+  },
+
   verifyPickupOtp(boxId: number, otp: string) {
     return supabase.rpc("verify_pickup_otp", { _box_id: boxId, _otp: otp }).single();
   },
 
   markPickupOpenFailed(orderId: string, reason: string) {
     return supabase.rpc("mark_pickup_open_failed", { _order_id: orderId, _reason: reason }).single();
+  },
+
+  returnPickupToStorage(boxId: number, reason = "pickup_returned_with_item") {
+    return supabase.rpc("return_pickup_to_storage", { _box_id: boxId, _reason: reason }).single();
   },
 
   confirmPickupClosed(boxId: number) {
@@ -202,6 +238,12 @@ export const alertApi = {
   },
 };
 
+export const notificationApi = {
+  listCustomerNotifications() {
+    return supabase.rpc("list_customer_notifications");
+  },
+};
+
 export const realtimeApi = {
   subscribeToAdminChanges(onChange: () => void) {
     const channel = supabase
@@ -231,6 +273,17 @@ export const realtimeApi = {
     const channel = supabase
       .channel("customer-orders-rt")
       .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, onChange)
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  },
+
+  subscribeToCustomerNotificationChanges(onChange: () => void) {
+    const channel = supabase
+      .channel("customer-notifications-rt")
+      .on("postgres_changes", { event: "*", schema: "public", table: "notifications" }, onChange)
       .subscribe();
 
     return () => {

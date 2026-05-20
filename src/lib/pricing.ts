@@ -5,6 +5,9 @@ export interface PricingConfig {
   overdue_hours: number;
 }
 
+export const PICKUP_RETRY_GRACE_HOURS = 2;
+export const PICKUP_RETRY_HOURLY_FEE = 3000;
+
 export function calculateFee(startTime: string | Date, cfg: PricingConfig, now: Date = new Date()): number {
   const start = new Date(startTime).getTime();
   const elapsedMs = Math.max(0, now.getTime() - start);
@@ -14,6 +17,35 @@ export function calculateFee(startTime: string | Date, cfg: PricingConfig, now: 
   const overdueHours = elapsedHours - cfg.base_hours;
   const overdueBlocks = Math.ceil(overdueHours / cfg.overdue_hours);
   return cfg.base_fee + overdueBlocks * cfg.overdue_fee;
+}
+
+export function calculatePickupRetryFee(startTime: string | Date, now: Date = new Date()): number {
+  const start = new Date(startTime).getTime();
+  const elapsedMs = Math.max(0, now.getTime() - start);
+  const elapsedHours = elapsedMs / (1000 * 60 * 60);
+  if (elapsedHours <= PICKUP_RETRY_GRACE_HOURS) return 0;
+
+  return Math.ceil(elapsedHours - PICKUP_RETRY_GRACE_HOURS) * PICKUP_RETRY_HOURLY_FEE;
+}
+
+export function isPickupRetryOrder(order: { failure_reason?: string | null }): boolean {
+  return order.failure_reason === "pickup_returned_with_item";
+}
+
+export function calculateOrderFee(
+  order: {
+    failure_reason?: string | null;
+    is_paid: boolean;
+    start_time: string;
+    status: string;
+    total_amount: number;
+  },
+  cfg: PricingConfig,
+  now: Date = new Date(),
+): number {
+  if (order.is_paid) return order.total_amount;
+  if (isPickupRetryOrder(order)) return calculatePickupRetryFee(order.start_time, now);
+  return calculateFee(order.start_time, cfg, now);
 }
 
 export function isOverdue(startTime: string | Date, cfg: PricingConfig, now: Date = new Date()): boolean {

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { z } from "zod";
 import {
   ArrowLeft,
+  Bell,
   CheckCircle2,
   Clock3,
   History,
@@ -17,7 +18,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { orderApi, realtimeApi, settingsApi, type CustomerOrderRow } from "@/integrations/supabase/api";
-import { calculateFee, formatVND, buildVietQR, type PricingConfig } from "@/lib/pricing";
+import { calculateFee, calculateOrderFee, formatVND, buildVietQR, isPickupRetryOrder, PICKUP_RETRY_GRACE_HOURS, PICKUP_RETRY_HOURLY_FEE, type PricingConfig } from "@/lib/pricing";
 import { useAuth, type Role } from "@/hooks/useAuth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -74,6 +75,7 @@ export default function Lookup() {
   const [orders, setOrders] = useState<LookupOrder[] | null>(null);
   const [customerOrders, setCustomerOrders] = useState<CustomerOrderRow[] | null>(null);
   const [customerOrdersBusy, setCustomerOrdersBusy] = useState(false);
+  const [paymentBusyId, setPaymentBusyId] = useState<string | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [now, setNow] = useState(new Date());
   const userId = user?.id;
@@ -133,6 +135,22 @@ export default function Lookup() {
     if (!data?.length) toast.info("Không tìm thấy đơn hàng đang chờ");
   }
 
+  async function confirmPaymentAndIssueOtp(orderId: string, orderPhone: string, fee: number) {
+    setPaymentBusyId(orderId);
+    const { data, error } = await orderApi.confirmCustomerPaymentAndIssueOtp(orderId, orderPhone, fee);
+    setPaymentBusyId(null);
+
+    if (error || !data) return toast.error(error?.message ?? "Không thể xác nhận thanh toán");
+
+    toast.success(`Đã xác nhận thanh toán. OTP: ${data.otp_code}`);
+    setOrders((current) =>
+      current?.map((item) =>
+        item.id === orderId ? { ...item, is_paid: true, total_amount: fee } : item,
+      ) ?? null,
+    );
+    loadCustomerOrders(true);
+  }
+
   const roleLabel = role ? roleLabels[role] : "";
 
   return (
@@ -182,7 +200,7 @@ export default function Lookup() {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className={`grid w-full h-auto ${user ? "grid-cols-3" : "grid-cols-1"} mb-4`}>
+          <TabsList className={`grid w-full h-auto ${user ? "grid-cols-4" : "grid-cols-1"} mb-4`}>
             {user && (
               <TabsTrigger value="orders" className="gap-2">
                 <History className="h-4 w-4" /> Đơn hàng
@@ -191,6 +209,11 @@ export default function Lookup() {
             <TabsTrigger value="lookup" className="gap-2">
               <Search className="h-4 w-4" /> Tra cứu
             </TabsTrigger>
+            {user && (
+              <TabsTrigger value="notifications" className="gap-2">
+                <Bell className="h-4 w-4" /> OTP
+              </TabsTrigger>
+            )}
             {user && (
               <TabsTrigger value="profile" className="gap-2">
                 <UserRound className="h-4 w-4" /> Hồ sơ
@@ -231,7 +254,14 @@ export default function Lookup() {
               )}
 
               {customerOrders?.map((order) => (
-                <CustomerOrderCard key={order.id} order={order} settings={settings} now={now} />
+                <CustomerOrderCard
+                  key={order.id}
+                  order={order}
+                  settings={settings}
+                  now={now}
+                  busy={paymentBusyId === order.id}
+                  onConfirmPayment={confirmPaymentAndIssueOtp}
+                />
               ))}
             </TabsContent>
           )}
@@ -267,9 +297,30 @@ export default function Lookup() {
             )}
 
             {orders && settings && orders.map((order) => (
-              <LookupOrderCard key={order.id} order={order} settings={settings} now={now} />
+              <LookupOrderCard
+                key={order.id}
+                order={order}
+                settings={settings}
+                now={now}
+                phone={phone}
+                busy={paymentBusyId === order.id}
+                onConfirmPayment={confirmPaymentAndIssueOtp}
+              />
             ))}
           </TabsContent>
+
+          {user && (
+            <TabsContent value="notifications">
+              <Card className="p-6 text-center">
+                <Bell className="mx-auto mb-3 h-10 w-10 text-primary" />
+                <div className="font-semibold">OTP và thông báo đơn hàng</div>
+                <p className="mt-1 text-sm text-muted-foreground">Mở trang thông báo để xem OTP mới nhất, nội dung gửi cho bạn và lịch sử thông báo.</p>
+                <Button asChild className="mt-4 gradient-primary">
+                  <Link to="/notifications">Xem OTP & thông báo</Link>
+                </Button>
+              </Card>
+            </TabsContent>
+          )}
 
           {user && (
             <TabsContent value="profile">
@@ -282,11 +333,23 @@ export default function Lookup() {
   );
 }
 
-function CustomerOrderCard({ order, settings, now }: { order: CustomerOrderRow; settings: Settings | null; now: Date }) {
+function CustomerOrderCard({
+  order,
+  settings,
+  now,
+  busy,
+  onConfirmPayment,
+}: {
+  order: CustomerOrderRow;
+  settings: Settings | null;
+  now: Date;
+  busy: boolean;
+  onConfirmPayment: (orderId: string, phone: string, fee: number) => void;
+}) {
   const fee = useMemo(() => {
     if (!settings || !liveFeeStatuses.has(order.status)) return order.total_amount;
-    return calculateFee(order.start_time, settings, now);
-  }, [order.start_time, order.status, order.total_amount, settings, now]);
+    return calculateOrderFee(order, settings, now);
+  }, [order, settings, now]);
 
   const paymentLabel = order.is_paid ? "Đã thanh toán" : "Chưa thanh toán";
   const qrUrl = settings?.bank_code && settings.bank_account
@@ -335,7 +398,9 @@ function CustomerOrderCard({ order, settings, now }: { order: CustomerOrderRow; 
 
       {order.failure_reason && (
         <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-          Lý do lỗi: {order.failure_reason}
+          {isPickupRetryOrder(order)
+            ? `Khách đóng cửa khi hàng vẫn còn trong tủ. Phí lưu lại được tính lại: miễn phí ${PICKUP_RETRY_GRACE_HOURS} giờ, sau đó ${formatVND(PICKUP_RETRY_HOURLY_FEE)}/giờ.`
+            : `Lý do lỗi: ${order.failure_reason}`}
         </div>
       )}
 
@@ -355,6 +420,14 @@ function CustomerOrderCard({ order, settings, now }: { order: CustomerOrderRow; 
               <div><span className="text-muted-foreground">Số TK:</span> <span className="font-mono">{settings?.bank_account || "-"}</span></div>
               <div><span className="text-muted-foreground">Chủ TK:</span> {settings?.account_name || "-"}</div>
               <div><span className="text-muted-foreground">Nội dung:</span> <span className="font-mono text-xs">LOCKER {order.box_id} {order.id.slice(0, 8)}</span></div>
+              <Button
+                className="mt-3 gradient-primary"
+                disabled={busy || !settings}
+                onClick={() => onConfirmPayment(order.id, order.user_phone, fee)}
+              >
+                {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Xác nhận đã thanh toán & nhận OTP
+              </Button>
             </div>
           </div>
         </div>
@@ -362,17 +435,43 @@ function CustomerOrderCard({ order, settings, now }: { order: CustomerOrderRow; 
 
       {order.status !== "completed" && order.status !== "cancelled" && order.status !== "failed" && (
         <div className="mt-5 border-t pt-5">
-          <Link to="/locker-terminal">
-            <Button className="w-full gradient-primary">Nhập OTP tại tủ</Button>
-          </Link>
+          {order.is_paid ? (
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Button asChild className="gradient-primary">
+                <Link to="/notifications">Xem OTP</Link>
+              </Button>
+              <Button asChild variant="outline">
+                <Link to="/locker-terminal">Nhập OTP tại tủ</Link>
+              </Button>
+            </div>
+          ) : (
+            <Button className="w-full" variant="outline" disabled>Thanh toán để nhận OTP</Button>
+          )}
         </div>
       )}
     </Card>
   );
 }
 
-function LookupOrderCard({ order, settings, now }: { order: LookupOrder; settings: Settings; now: Date }) {
-  const fee = useMemo(() => calculateFee(order.start_time, settings, now), [order.start_time, settings, now]);
+function LookupOrderCard({
+  order,
+  settings,
+  now,
+  phone,
+  busy,
+  onConfirmPayment,
+}: {
+  order: LookupOrder;
+  settings: Settings;
+  now: Date;
+  phone: string;
+  busy: boolean;
+  onConfirmPayment: (orderId: string, phone: string, fee: number) => void;
+}) {
+  const fee = useMemo(
+    () => (order.is_paid ? order.total_amount : calculateFee(order.start_time, settings, now)),
+    [order.is_paid, order.start_time, order.total_amount, settings, now],
+  );
   const elapsed = Math.max(0, Math.floor((now.getTime() - new Date(order.start_time).getTime()) / 1000));
   const hours = Math.floor(elapsed / 3600);
   const minutes = Math.floor((elapsed % 3600) / 60);
@@ -420,15 +519,32 @@ function LookupOrderCard({ order, settings, now }: { order: LookupOrder; setting
               <div><span className="text-muted-foreground">Số TK:</span> <span className="font-mono">{settings.bank_account || "-"}</span></div>
               <div><span className="text-muted-foreground">Chủ TK:</span> {settings.account_name || "-"}</div>
               <div><span className="text-muted-foreground">Nội dung:</span> <span className="font-mono text-xs">LOCKER {order.box_id} {order.id.slice(0, 8)}</span></div>
+              <Button
+                className="mt-3 gradient-primary"
+                disabled={busy}
+                onClick={() => onConfirmPayment(order.id, phone.trim(), fee)}
+              >
+                {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Xác nhận đã thanh toán & nhận OTP
+              </Button>
             </div>
           </div>
         </div>
       )}
 
       <div className="border-t mt-4 pt-4">
-        <Link to="/locker-terminal">
-          <Button className="w-full gradient-primary">Nhập OTP tại tủ</Button>
-        </Link>
+        {order.is_paid ? (
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Button asChild className="gradient-primary">
+              <Link to="/notifications">Xem OTP</Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link to="/locker-terminal">Nhập OTP tại tủ</Link>
+            </Button>
+          </div>
+        ) : (
+          <Button className="w-full" variant="outline" disabled>Thanh toán để nhận OTP</Button>
+        )}
       </div>
     </Card>
   );

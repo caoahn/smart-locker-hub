@@ -298,6 +298,36 @@ export type Database = {
           reason: string
         }[]
       }
+      confirm_customer_payment_and_issue_otp: {
+        Args: { _order_id: string; _phone: string; _total_amount: number }
+        Returns: {
+          box_id: number
+          notification_id: string
+          order_id: string
+          otp_code: string
+          otp_expires_at: string
+        }[]
+      }
+      admin_confirm_payment_and_issue_otp: {
+        Args: { _order_id: string; _total_amount: number | null }
+        Returns: {
+          box_id: number
+          notification_id: string
+          order_id: string
+          otp_code: string
+          otp_expires_at: string
+        }[]
+      }
+      create_order_after_dropoff: {
+        Args: { _box_id: number; _customer_email: string | null; _customer_phone: string }
+        Returns: {
+          box_id: number
+          locker_status: string
+          notification_id: string
+          order_id: string
+          order_status: string
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -337,6 +367,21 @@ export type Database = {
           user_phone: string
         }[]
       }
+      list_customer_notifications: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          channel: string
+          content: string
+          created_at: string
+          id: string
+          order_id: string | null
+          recipient_email: string | null
+          recipient_phone: string | null
+          sent_at: string | null
+          status: string
+          subject: string | null
+        }[]
+      }
       mark_dropoff_open_failed: {
         Args: { _order_id: string; _reason: string | null }
         Returns: {
@@ -357,6 +402,15 @@ export type Database = {
       }
       request_dropoff_open: {
         Args: { _order_id: string }
+        Returns: {
+          box_id: number
+          locker_status: string
+          order_id: string
+          order_status: string
+        }[]
+      }
+      return_pickup_to_storage: {
+        Args: { _box_id: number; _reason: string | null }
         Returns: {
           box_id: number
           locker_status: string
